@@ -1,0 +1,70 @@
+---
+title: "R Notebook for Q1"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Q1) 
+
+First we load the libraries and read the CSV data into a dataframe
+```{r}
+library(dplyr)
+library(Hmisc)
+
+PriceCSV <- read.csv("R_Feed.csv")
+head(PriceCSV)
+```
+We then create a lag variable in the time series and calculate the percentage change in values for each day
+```{r}
+
+PriceCSV$days<-PriceCSV$days-1
+#Creating a lag value for prices 
+PriceCSV$lag <- Lag(PriceCSV$coinbase, +1)
+PriceCSV$Return <- ((PriceCSV$coinbase - PriceCSV$lag)/PriceCSV$lag)*100
+head(PriceCSV)
+```
+We calculate the cumulative prices
+
+```{r}
+PriceCSV$cummilativePrices <- PriceCSV$days/366
+sortValues<- as.data.frame(sort(PriceCSV$Return))
+
+FinalDF<- PriceCSV[-1,]
+FinalDF<- cbind(FinalDF,sortValues$`sort(PriceCSV$Return)`)
+
+colnames(FinalDF)[colnames(FinalDF) == 'sortValues$`sort(PriceCSV$Return)`'] <- 'SortedReturn'
+head(FinalDF)
+
+```
+
+We plot the cumulative prices against the return(Sorted)
+```{r}
+plot(FinalDF$SortedReturn,FinalDF$cummilativePrices)
+
+```
+Since we dont have a value corresponding to -9 (Decrease of 9%) we interpolate the values greater than and less than -9 to find the value for -9
+```{r}
+for(i in 1:nrow(FinalDF))
+{
+  if(FinalDF$SortedReturn[i] >= -9){
+    v1<-i
+    v2<- i-1
+    break;
+  }
+}
+
+InterpolatedForValue <-approx(c(FinalDF$SortedReturn[v1],FinalDF$SortedReturn[v2]), c(FinalDF$cummilativePrices[v1],FinalDF$cummilativePrices[v2]),xout=-9)
+InterpolatedForValue <- InterpolatedForValue$y
+InterpolatedForValue
+```
+
+```{r}
+probabilityResult <- 1-((1-InterpolatedForValue)^5)
+probabilityResult
+```
+
+```{r}
+print(paste("The probability is:",probabilityResult*100, "%"))
+
+```
