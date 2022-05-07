@@ -42,6 +42,7 @@ We plot the cumulative prices against the return(Sorted)
 ```{r}
 plot(FinalDF$SortedReturn,FinalDF$cummilativePrices)
 
+
 ```
 Since we dont have a value corresponding to -9 (Decrease of 9%) we interpolate the values greater than and less than -9 to find the value for -9
 ```{r}
