@@ -1,0 +1,244 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+test test text text
+
+I have downloaded csv files of closing prices of the following assets:
+
+Crypto Assets:
+1. Bitcoin (BTC)
+2. Ethereum (ETH)
+3. Tether (USDT)
+4. USD Coin (USDC)
+5. Binance Coin (BNB)
+
+Traditional Assets
+1. Vanguard 500 Index Fund (VOO) (Equities index)
+2. Invesco QQQ Trust (QQQ) (Equities index)
+3. Vanguard Total Bond Market Index Fund (VBTLX) (Bonds index)
+4. abrdn Physical Gold Shares ETF (SGOL) (Metals)
+5. Fidelity ZERO Large Cap Index Fund (FNILX) (Equity index large cap)
+
+I'll load these CSV files into a combined dataframe
+```{r}
+library(tidyverse)
+
+BTC <- read.csv("BTC-USD.csv")
+BTC <- tail(BTC[,5],250)
+
+ETH <- read.csv("ETH-USD.csv")
+ETH <- tail(ETH[,5],250)
+
+USDT <- read.csv("USDT-USD.csv")
+USDT <- tail(USDT[,5],250)
+
+USDC <- read.csv("USDC-USD.csv")
+USDC <- tail(USDC[,5],250)
+
+BNB <- read.csv("BNB-USD.csv")
+BNB <- tail(BNB[,5],250)
+
+VOO <- read.csv("VOO.csv")
+VOO <- tail(VOO[,5],250)
+
+QQQ <- read.csv("QQQ.csv")
+QQQ <- tail(QQQ[,5],250)
+
+VBTLX <- read.csv("VBTLX.csv")
+VBTLX <- tail(VBTLX[,5],250)
+
+SGOL <- read.csv("SGOL.csv")
+SGOL <- tail(SGOL[,5],250)
+
+FNILX <- read.csv("FNILX.csv")
+Date<- tail(FNILX[,1], 250)
+FNILX <- tail(FNILX[,5],250)
+
+
+data_combine <- data.frame(Date,BTC,ETH,USDT,USDC,BNB,VOO,QQQ,VBTLX,SGOL,FNILX)
+
+```
+
+I'm  converting my DF into a time series object, and plotting the series
+
+```{r}
+require(xts)
+library(xts)
+
+data_combine[data_combine == "null"] <- ""
+#View(data_combine)
+
+df <- sapply(data_combine, as.numeric)
+str(df)
+#df1 <- null.omit(df)
+#df2 <- na.omit(df1)
+df3 <- data.frame(date=Date,df)
+
+
+df3$date = as.POSIXct(df3$date,format="%Y-%m-%d", tz = "")
+df3.xts <- xts(df3[,-1], order.by=df3[,1])
+
+plot(df3.xts)
+#plot(df3.xts[,1:5])
+#plot(df3.xts[,6:10])
+```
+
+Plotting returns
+```{r}
+
+#log return
+return = diff (log(df3.xts)) # Log return calculation
+return = return [-1] # removing the first empty observation, received after return calculation
+summary (return)
+plot(return)
+```
+
+
+```{r}
+library(PerformanceAnalytics)
+return2 = Return.calculate(df3.xts, method="log")
+
+return3 = diff (df3.xts) # differences
+# the sane as 
+return4 = Return.calculate(df3.xts, method="difference")
+#daily gain/loss (%)
+return5 = diff(df3.xts)/df3.xts[-length(df3.xts)]
+
+plot(return5)
+```
+
+
+```{r}
+#Correlation #Chapter 2: Session 2
+cor(df3.xts)
+```
+We can notice that Bitcoin and Etherium is highly correlated to each other in a positive fasion.
+There is some positive correlation between BTC and Tether coin.
+
+Among traditional assets: VOO is positively correlated to QQQ and FNILX, as they are both equity index funds.
+Correlation amon Crypto and traditional assets are very low, and often even negative.
+
+## Part 2
+
+```{r}
+##ECONOMIC FACTOR MODEL
+Traditional_Assets <- df3.xts[,7:11]
+Crypto <- df3.xts[,1:6]
+```
+
+#### Factor Analysis
+
+```{r}
+## FACTOR Analysis
+
+Traditional_Assets2 = as.matrix(Traditional_Assets)   
+Crypto2 = as.matrix(Crypto) 
+Indices = as.data.frame(diff(log(Traditional_Assets2)))  # log difference
+names(Indices)[1]="Traditional_Assets" 
+Cryptocurrency = as.data.frame(diff(log(Crypto2))) #calculte log difference 
+names(Cryptocurrency)[1] = "Cryptocurrencies"
+Indices_Cryptocurrency = cbind(Indices,Cryptocurrency) #View(Indices_Cryptocurrency)
+berndt = as.matrix(df3.xts[,-1])
+arFit = ar(cbind(Indices,Cryptocurrency)) # autoregressive model - by default selecting the complexity by AIC. Here it is AR(5)
+
+
+
+```
+
+```{r}
+
+res = arFit$resid[4:1446,] # residuals of the AR (5) modle (the interpretations of the residuals is that they are unexpected shocks)
+lmfit = lm(berndt[4:1446,2:9]~res[,1]+res[,2]) #fit a regression Y is a set of teh stock returns and X1 and X2 - residuals from the AR modles
+slmfit = summary(lmfit) #summary of the regression
+length(berndt[,1]) #dim(berndt[,1])
+```
+
+```{r}
+
+beta_CPI = lmfit$coef[2,] # extract all world indices betas (b1)
+beta_IP = lmfit$coef[3,] # extract all Cruptocurrences betas (b2)
+```
+
+####Determining the Number of Factors to Extract
+### Scree plot
+
+```{r}
+library(Momocs)
+library(psych)
+scree(df3.xts)
+
+#Parallel Analysis
+fa.parallel (df3.xts) #
+
+```
+
+Based on the scree plot of Principal component and factor analysis we can see that 3 factors will be adequate to explain the maximum variation in the data.
+
+```{r}
+par(mfrow=c(1,3)) # building three graphs in a row
+#barplot(rsq,horiz=T,names=names(beta_CPI),main="R squared") #Creates a bar plot with vertical or horizontal bars.
+barplot(beta_CPI,hori=T,main="beta CPI") #Creates a bar plot with vertical or horizontal bars.
+barplot(beta_IP,hori=T,main="beta IP") #Creates a bar plot with vertical or horizontal bars.
+
+```
+
+
+```{r}
+
+fa_none = factanal(df3.xts[,2:10],4,rotation="none") # 4 factor model without rotation
+print(fa_none,cutoff=0.1) # By convention, any loading with an absolute value less than the parameter cutoff is not printed, and the default value of cutoff is 0.1
+```
+
+Since the p-value is very low, we can go ahead and reject the hypothesis that the model fits the data well.
+
+### VARIMAX rotation
+
+```{r}
+fa_vari = factanal(df3.xts[,2:10],4,rotation="varimax") #factor model with rotation
+
+print(fa_vari,cutoff=0.1,sort=T)
+print(fa_vari,cutoff=0.1)
+sum(fa_vari$loadings[,1]^2)
+B=fa_vari$loadings[,] # factor loadings
+B
+```
+
+We see that the p-value is low here too using varimax rotation
+Cumulative variance for 4 factors is just over 70%
+
+
+### Estimation factor model
+```{r}
+df3.xts <- subset(df3.xts, select = -c(Date) )
+factor.model <- fa(df3.xts, nfactors = 3, fm="ols", max.iter = 100, rotate = "oblimin")
+factor.model
+```
+100 iterations or tries are used to discover the "optimal" answer while estimating a factor model with three elements using OLS. 
+Rotate - we employ oblimin rotation in order to allow elements to correlate.
+
+
+```{r}
+fa.diagram(factor.model) 
+```
+
+# Communality 
+```{r}
+factor.model$communality
+```
+Common variance
+#Eeigenvalues
+```{r}
+factor.model$e.values
+```
+
+#Percentage of Variance Accounted For
+```{r}
+100*factor.model$e.values/length(factor.model$e.values)
+```
+
+```{r}
+print(factor.model$loadings, cutoff=0, digits=3)
+print(factor.model$Structure, cutoff=0, digits=3)
+```

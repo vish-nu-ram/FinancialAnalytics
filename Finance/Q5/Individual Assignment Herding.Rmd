@@ -1,0 +1,238 @@
+---
+title: "Herding in Tech stocks"
+output: html_notebook
+---
+
+### What is Herding
+
+The phrase herd instinct alludes to a phenomena in which someone join groups and imitate the actions of others on the belief that others have already conducted the necessary research. Even in the financial industry, where investors imitate what they believe other investors are doing rather than depending on their own research, herd tendencies remain widespread. An investor who demonstrates herd instinct tends to gravitate toward the same or comparable decisions the market is making in a broader sense.
+
+Here i will try to explore the top tech stocks and see if there is a herding pattern in these stocks by looking at the closing prices of these stocks for a period of one year. We will try to see if the price movements in these stocks are based on their own performances or largely based on general trends in the market that reflects across all stocks, showing some patterns of herding. 
+
+
+### Data Description
+
+I will be using the closing prices of the 3 popular tech stocks, Meta(Facebook), Google, and Apple as well as the closing price of the S&P500 index for the duration of past one year. These are one recording per stock per day, in a series from May 6 2021 to May 6 2022
+
+The prices were downloaded individually from Yahoo Finance and merged into a CSV file that I'll be using for further analysis.
+
+### Methodology
+
+I will be using Cross sectional Absolute deviation to see if there is herding present in the technology stocks. I'll employ the return dispersion model presented by Chang et al., that is an improvement on the framework suggested by Christie and Huang, to evaluate investment herding behavior.
+
+I use the CSAD of returns as a measure of return dispersion formulated as follows:
+
+$CSADt= 1/M \sum_{i=1}^{M} ∣R_{(i,t)}−R_{(m,t)}∣$
+
+If herding occurs, the link with CSAD and stock returns will become less positive and linear, or perhaps even negative and nonlinear. This phenomena emerges as a result of the correlation between herding and a decline in CSAD and a rise in extreme returns.
+
+First I load the libraries and data sets that we created for the technology stock closing prices for past one year.
+```{r}
+require (xts) # the package to work with xts objects require (zoo) # the package to work with zoo objects
+library (PerformanceAnalytics) # the package to calculate return automatically
+require (sandwich)
+require(lmtest)
+## load the data
+closingPrice = read.csv("close_prices.csv", header = TRUE) # import the datafile
+```
+
+Now I will be parsing the date column and then proceed to convert the dataframe into a time series object so that calculating features like Lag and return would be easier
+
+```{r}
+closingPrice$Date = as.POSIXct(closingPrice$Date,format="%d/%m/%Y", tz = "") # change the type of the first column
+closingPrice.xts <- xts(closingPrice[,-1], order.by=closingPrice[,1]) # transform the dataframe into xts object
+closingPrice.zoo <- as.zoo(closingPrice.xts) # transfporm into zoo object
+
+```
+
+I calculate the return for each day 
+
+```{r}
+return = Return.calculate( closingPrice.xts , method = "log")
+```
+
+```{r}
+plt = plot(return$FB_Close, col = 4)
+plt =   lines(return$GO_Close, col = 2)
+plt =  lines(return$AM_Close, col = 7)
+show(plt)
+```
+We can observe that the returns in all the stocks are very much aligned and follow similar trends.
+
+
+I created a function for calculation of CSAD
+I calculate CSAD in the following manner:
+
+$CSAD = rowSums(|return-rowMeans(return) |) /ncol(return)$)
+
+```{r}
+# a function to create CSAD (Cross sectional absolute deviation)
+exch_herd = function(return) {
+n=ncol(return)
+Rm = rowMeans(return) 
+temp_dif =abs(return-Rm) 
+temp_sum = rowSums(temp_dif) 
+CSAD = temp_sum / ncol(return) 
+CSAD = cbind (CSAD, Rm) 
+return (CSAD)
+}
+```
+
+I call the CSAD function by passing our return values we calculated previously
+
+```{r}
+f = exch_herd(return) 
+head (f)
+
+```
+
+Now I will proceed to perform a regression on our CSAD values
+
+First I create a dataframe with the CSAD values from the function
+```{r}
+CSAD.df = fortify.zoo(f) 
+CSAD.df$Rm2 = CSAD.df$Rm^2 
+CSAD.df = CSAD.df[-c(1),] 
+head (CSAD.df)
+tail (CSAD.df)
+y = CSAD.df$CSAD
+x1 = abs (CSAD.df$Rm)
+x2 =CSAD.df$Rm2
+variables.ready = cbind (y, x1, x2)
+```
+
+We apply linear regression where dependent variable in CSAD values of each day, 
+and explanatory variables are RM and RM^2
+
+```{r}
+linearMod <- lm(y~x1+x2) # build linear regression model on full data
+print(linearMod)
+```
+
+
+This is the summary of our regression model on the CSAD values of the tech stocks
+```{r}
+summary(linearMod)
+```
+
+We notice that the variables are significant in explaining the dependant variable, hence there is some statistically significant herding
+
+```{r}
+coeftest(linearMod,vcov=NeweyWest(linearMod,verbose=T))
+```
+
+### Estimting with TV Linear Regression
+
+```{r}
+
+require (tvReg)
+tvlm.fit = tvLM(y~x1+x2, bw = NULL  ) #bw=0.149 
+head (tvlm.fit$coefficients)
+plot(tvlm.fit$coefficients[,1], type="l")
+plot(tvlm.fit$coefficients[,2], type="l")
+plot(tvlm.fit$coefficients[,3], type="l")
+```
+
+
+### Estimting with Bayesian models
+
+```{r}
+library (brms)
+hourly = cbind(y, x1, x2)
+model = brm(formula = y ~ x1+x2, 
+            data    = hourly,
+            seed    = 123)
+summary(model)
+```
+
+
+### Quantile regression
+
+```{r}
+
+library (quantreg)
+taus<-seq(from = .1, to = .9, by = .1) 
+#coef0 <- rq( y ~ x1+x2, tau=taus)
+#summary (coef0)
+
+```
+
+# Part 2, for Up and Down markets
+
+We will split the  data into positive and negative days where returns are positive or negative respectively in the S&P500 index
+
+```{r}
+pos_return <- return[which(return$SNP_500_Close > 0),]
+neg_return <- return[which(return$SNP_500_Close < 0),]
+
+```
+
+### Herding in UP market
+
+```{r}
+pos_f = exch_herd(pos_return)
+head (pos_f)
+```
+
+
+```{r}
+pos.CSAD.df = fortify.zoo(pos_f) # converting f into a dataframe (to simplify further calculations)
+pos.CSAD.df$Rm2 = pos.CSAD.df$Rm^2 # calculating Rm^2
+pos.CSAD.df = pos.CSAD.df[-c(1),] # removing the first row with NAs
+head (pos.CSAD.df) # show the first 6 rows
+tail (pos.CSAD.df) # show the last 6 rows
+```
+
+#### reassign my columns as Y and Xs to look better in the regression model
+```{r}
+
+pos.y = pos.CSAD.df$CSAD  # reassign my columns as Y and Xs to look better in the regression model
+pos.x1 = abs (pos.CSAD.df$Rm)
+pos.x2 = pos.CSAD.df$Rm2
+
+```
+
+#### Linear model
+```{r}
+
+linearMod2 <- lm(pos.y ~ pos.x1 + pos.x2)  # build linear regression model on full data
+print(linearMod2)
+summary(linearMod2)
+```
+
+### Herding in DOWN market
+
+```{r}
+neg_f = exch_herd(neg_return) 
+head (neg_f) # show the first 6 rows
+
+```
+
+```{r}
+neg.CSAD.df = fortify.zoo(neg_f) # converting f into a dataframe (to simplify further calculations)
+neg.CSAD.df$Rm2 = neg.CSAD.df$Rm^2 # calculating Rm^2
+neg.CSAD.df = neg.CSAD.df[-c(1),] # removing the first row with NAs
+head (neg.CSAD.df) # show the first 6 rows
+tail (neg.CSAD.df) # show the last 6 rows
+```
+
+
+```{r}
+neg.y = neg.CSAD.df$CSAD  # reassign my columns as Y and Xs to look better in the regression model
+neg.x1 = abs (neg.CSAD.df$Rm)
+neg.x2 = neg.CSAD.df$Rm2
+```
+
+#### Linear model
+```{r}
+
+linearMod3 <- lm(neg.y ~ neg.x1 + neg.x2)  # build linear regression model on full data
+print(linearMod3)
+summary(linearMod3)
+```
+Coefficient of X2, which is $R^2_{(m,t)}$ is not negative meaning there is no evidence of herding
+
+```{r}
+
+```
+
